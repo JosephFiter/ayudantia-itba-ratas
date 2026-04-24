@@ -114,14 +114,14 @@ class RatTracker:
                     self._kf_ready = True
                 self.kalman.predict()
                 self.kalman.update(np.array([[cx], [cy]]))
-                sx, sy = float(self.kalman.x[0]), float(self.kalman.x[1])
+                sx, sy = float(self.kalman.x[0, 0]), float(self.kalman.x[1, 0])
                 records.append({"frame": idx, "timestamp": t,
                                  "x_raw": cx, "y_raw": cy,
                                  "x": sx, "y": sy, "detected": True})
             else:
                 if self._kf_ready:
                     self.kalman.predict()
-                    sx, sy = float(self.kalman.x[0]), float(self.kalman.x[1])
+                    sx, sy = float(self.kalman.x[0, 0]), float(self.kalman.x[1, 0])
                 else:
                     sx = sy = None
                 records.append({"frame": idx, "timestamp": t,

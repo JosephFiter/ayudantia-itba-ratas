@@ -29,6 +29,24 @@ dist/
 *.suo
 *.user
 
+# Datos del proyecto (uploads, caché, resultados)
+data/uploads/
+data/cache/
+data/results/
+
+# Videos y audios sueltos en cualquier parte
+*.mp4
+*.avi
+*.mov
+*.mkv
+*.wmv
+*.webm
+*.wav
+*.mp3
+*.flac
+*.ogg
+*.m4a
+
 # OS
 .DS_Store
 Thumbs.db

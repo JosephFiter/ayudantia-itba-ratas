@@ -5,7 +5,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 import streamlit as st
 import cv2
 import numpy as np
-import plotly.graph_objects as go
+from PIL import Image, ImageDraw
+from streamlit_image_coordinates import streamlit_image_coordinates
 from core.calibration import compute_px_per_cm
 from config import APP_TITLE
 
@@ -18,87 +19,84 @@ if not st.session_state.get("video_path"):
 
 frame = st.session_state.first_frame
 h, w = st.session_state.frame_shape
-
-st.markdown("""
-**Cómo calibrar:**
-1. Mirá la imagen de abajo. Pasá el cursor por dos puntos cuya distancia real conocés
-   (ej: dos extremos del laberinto, una regla en el piso, marcas en la pared).
-2. Los coordenadas aparecen en la esquina al hacer hover.
-3. Ingresá esas coordenadas y la distancia real en cm.
-""")
-
-# ── Mostrar frame con plotly (coordenadas en hover) ───────────────────────────
 rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB) if frame.ndim == 3 else frame
 
-fig = go.Figure()
-fig.add_trace(go.Image(z=rgb))
-fig.update_layout(
-    width=min(w, 900),
-    height=int(min(w, 900) * h / w),
-    margin=dict(l=0, r=0, t=0, b=0),
-    xaxis=dict(showticklabels=True, title="x (px)"),
-    yaxis=dict(showticklabels=True, title="y (px)", autorange="reversed"),
-)
-st.plotly_chart(fig, use_container_width=True)
+for key, default in [("calib_p1", None), ("calib_p2", None), ("last_calib_click", None)]:
+    if key not in st.session_state:
+        st.session_state[key] = default
 
-st.caption("Pasá el mouse sobre la imagen para ver las coordenadas (x, y) en la barra de Plotly.")
+p1 = st.session_state.calib_p1
+p2 = st.session_state.calib_p2
 
-st.divider()
+# ── Instrucciones dinámicas ───────────────────────────────────────────────────
+if p1 is None:
+    st.info("Hacé click en el **punto 1** de la línea de calibración.")
+elif p2 is None:
+    st.info("Ahora hacé click en el **punto 2**.")
+else:
+    st.success("Línea trazada. Ingresá la distancia real y guardá.")
 
-# ── Inputs de calibración ────────────────────────────────────────────────────
-st.subheader("Ingresar puntos de referencia")
+# ── Imagen con overlay ────────────────────────────────────────────────────────
+CANVAS_W = min(w, 800)
+scale = CANVAS_W / w
+CANVAS_H = int(h * scale)
 
-col1, col2 = st.columns(2)
-with col1:
-    st.markdown("**Punto 1**")
-    x1 = st.number_input("x₁ (px)", min_value=0, max_value=w, value=50, key="cx1")
-    y1 = st.number_input("y₁ (px)", min_value=0, max_value=h, value=50, key="cy1")
+display = Image.fromarray(rgb).resize((CANVAS_W, CANVAS_H))
+draw = ImageDraw.Draw(display)
 
-with col2:
-    st.markdown("**Punto 2**")
-    x2 = st.number_input("x₂ (px)", min_value=0, max_value=w, value=w - 50, key="cx2")
-    y2 = st.number_input("y₂ (px)", min_value=0, max_value=h, value=50, key="cy2")
+def to_display(pt):
+    return (int(pt[0] * scale), int(pt[1] * scale))
 
-real_cm = st.number_input(
-    "Distancia real entre los dos puntos (cm)",
-    min_value=0.1, value=30.0, step=0.5,
-)
+if p1:
+    dp1 = to_display(p1)
+    draw.ellipse([dp1[0]-6, dp1[1]-6, dp1[0]+6, dp1[1]+6], fill="lime", outline="white", width=1)
+    draw.text((dp1[0]+8, dp1[1]-8), "P1", fill="lime")
+if p2:
+    dp2 = to_display(p2)
+    draw.ellipse([dp2[0]-6, dp2[1]-6, dp2[0]+6, dp2[1]+6], fill="red", outline="white", width=1)
+    draw.text((dp2[0]+8, dp2[1]-8), "P2", fill="red")
+if p1 and p2:
+    draw.line([to_display(p1), to_display(p2)], fill="cyan", width=2)
 
-# Preview de la línea de calibración
-dist_px = np.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2)
-st.info(f"Distancia en píxeles: **{dist_px:.1f} px** → **{dist_px / real_cm:.2f} px/cm**")
+coords = streamlit_image_coordinates(display, key="calib_img")
 
-fig2 = go.Figure()
-fig2.add_trace(go.Image(z=rgb))
-fig2.add_trace(go.Scatter(
-    x=[x1, x2], y=[y1, y2],
-    mode="lines+markers+text",
-    line=dict(color="cyan", width=2),
-    marker=dict(size=10, color=["lime", "red"]),
-    text=["P1", "P2"], textposition="top center",
-    textfont=dict(color="white", size=13),
-    name="Línea de calibración",
-))
-fig2.update_layout(
-    width=min(w, 900),
-    height=int(min(w, 900) * h / w),
-    margin=dict(l=0, r=0, t=0, b=0),
-    xaxis=dict(showticklabels=True, title="x (px)"),
-    yaxis=dict(showticklabels=True, title="y (px)", autorange="reversed"),
-    showlegend=False,
-)
-st.plotly_chart(fig2, use_container_width=True)
+# Solo procesar click nuevo (distinto al anterior)
+if coords and coords != st.session_state.last_calib_click:
+    st.session_state.last_calib_click = coords
+    actual = (int(coords["x"] / scale), int(coords["y"] / scale))
+    if p1 is None:
+        st.session_state.calib_p1 = actual
+    elif p2 is None:
+        st.session_state.calib_p2 = actual
+    st.rerun()
 
 st.divider()
 
-if st.button("Guardar calibración", type="primary"):
-    try:
-        px_per_cm = compute_px_per_cm((x1, y1), (x2, y2), real_cm)
-        st.session_state.px_per_cm = px_per_cm
-        st.session_state.calib_done = True
-        st.success(f"Calibración guardada: **{px_per_cm:.3f} px/cm** ({1/px_per_cm*10:.2f} mm/px)")
-    except ValueError as e:
-        st.error(str(e))
+# ── Controles ─────────────────────────────────────────────────────────────────
+real_cm = st.number_input("Distancia real de la línea (cm)", min_value=0.1, value=30.0, step=0.5)
+
+col_reset, col_save = st.columns([1, 2])
+
+with col_reset:
+    if st.button("Reiniciar puntos"):
+        st.session_state.calib_p1 = None
+        st.session_state.calib_p2 = None
+        st.session_state.last_calib_click = None
+        st.rerun()
+
+if p1 and p2:
+    dist_px = float(np.sqrt((p2[0] - p1[0]) ** 2 + (p2[1] - p1[1]) ** 2))
+    st.caption(f"Distancia en píxeles: **{dist_px:.1f} px** → **{dist_px / real_cm:.2f} px/cm**")
+
+    with col_save:
+        if st.button("Guardar calibración", type="primary"):
+            try:
+                px_per_cm = compute_px_per_cm(p1, p2, real_cm)
+                st.session_state.px_per_cm = px_per_cm
+                st.session_state.calib_done = True
+                st.success(f"Calibración guardada: **{px_per_cm:.3f} px/cm** ({1/px_per_cm*10:.2f} mm/px)")
+            except ValueError as e:
+                st.error(str(e))
 
 if st.session_state.get("calib_done"):
     st.metric("px/cm actual", f"{st.session_state.px_per_cm:.3f}")
