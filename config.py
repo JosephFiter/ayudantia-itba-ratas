@@ -10,13 +10,19 @@ for _d in (UPLOADS_DIR, CACHE_DIR, RESULTS_DIR):
     _d.mkdir(parents=True, exist_ok=True)
 
 TRACKER_DEFAULTS = {
-    "method": "mog2",        # "mog2" | "threshold"
+    "method": "mog2",        # "mog2" | "threshold" | "color"
     "invert": False,          # True si la rata es clara sobre fondo oscuro
     "min_area": 200,
     "max_area": 10_000,
     "blur_size": 3,
     "history": 500,
     "var_threshold": 40,
+    # Color detection parameters for white rat
+    "hue_min": 0,
+    "hue_max": 179,
+    "sat_max": 30,
+    "val_min": 200,
+    "val_max": 255,
 }
 
 USV_DEFAULTS = {

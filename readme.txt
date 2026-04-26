@@ -1,0 +1,3 @@
+Si no queres tener este archivo no pasa nada turco pero creo que viene bien para apuntes.
+Puse para que haya un limite en el area y no delire tanto, tambien le dije que no hace movimientos bruzcos y bajo un poco el delirio.
+Tambien le dije lo de identificar por contraste de color que no funciono porque detecta como balnco la fecha que esta por encima en el video, despues le voy a insistir para ver si igual se puede. No se si voy a seguir hoy con esto, igual ya hiciste una muy buena base.

@@ -6,6 +6,8 @@ import streamlit as st
 import cv2
 import numpy as np
 import pandas as pd
+from PIL import Image, ImageDraw
+from streamlit_image_coordinates import streamlit_image_coordinates
 from config import APP_TITLE, CACHE_DIR, TRACKER_DEFAULTS
 from core.tracker import RatTracker
 from core.metrics import compute_metrics, summary_stats
@@ -17,6 +19,64 @@ if not st.session_state.get("video_path"):
     st.warning("Primero cargá un video en la página **1 Upload**.")
     st.stop()
 
+for key, default in [
+    ("boundary_points", []),
+    ("last_boundary_click", None),
+]:
+    if key not in st.session_state:
+        st.session_state[key] = default
+
+# ── Definir límites del laberinto ───────────────────────────────────────────
+st.subheader("Límites del laberinto")
+st.info("Hacé click en varios puntos alrededor del laberinto. El tracker solo usará esa región para evitar detecciones en la luz o en el borde.")
+
+frame = st.session_state.first_frame
+h, w = st.session_state.frame_shape
+rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB) if frame.ndim == 3 else frame
+
+CANVAS_W = min(w, 900)
+scale = CANVAS_W / w
+CANVAS_H = int(h * scale)
+
+display = Image.fromarray(rgb).resize((CANVAS_W, CANVAS_H))
+draw = ImageDraw.Draw(display)
+
+points = st.session_state.boundary_points
+for i, pt in enumerate(points):
+    x, y = int(pt[0] * scale), int(pt[1] * scale)
+    draw.ellipse([x - 6, y - 6, x + 6, y + 6], fill="lime", outline="white")
+    draw.text((x + 8, y - 8), str(i + 1), fill="lime")
+
+if len(points) > 1:
+    line = [(int(x * scale), int(y * scale)) for x, y in points]
+    if len(points) >= 3:
+        draw.polygon(line, outline="cyan")
+    draw.line(line + [line[0]], fill="cyan", width=2)
+
+coords = streamlit_image_coordinates(display, key="boundary_img")
+if coords and coords != st.session_state.last_boundary_click:
+    st.session_state.last_boundary_click = coords
+    new_point = (int(coords["x"] / scale), int(coords["y"] / scale))
+    st.session_state.boundary_points.append(new_point)
+
+col_left, col_right = st.columns([3, 1])
+with col_left:
+    if st.button("Borrar último punto"):
+        if st.session_state.boundary_points:
+            st.session_state.boundary_points.pop()
+            st.session_state.last_boundary_click = None
+with col_right:
+    if st.button("Reiniciar límites"):
+        st.session_state.boundary_points = []
+        st.session_state.last_boundary_click = None
+
+if points:
+    st.caption(f"Puntos definidos: {len(points)}. Deben ser al menos 3 para crear una región válida.")
+
+st.image(display, caption="Haz click para definir los límites", use_column_width=True)
+
+st.divider()
+
 # ── Configuración del tracker ────────────────────────────────────────────────
 st.subheader("Parámetros del algoritmo")
 
@@ -24,8 +84,8 @@ col1, col2 = st.columns(2)
 with col1:
     method = st.selectbox(
         "Método de detección",
-        ["mog2", "threshold"],
-        help="mog2: Background Subtraction adaptativo (recomendado). threshold: Umbralización de Otsu (fondo 100% estático).",
+        ["mog2", "threshold", "color"],
+        help="mog2: Background Subtraction adaptativo. threshold: Umbralización de Otsu. color: Detección de rata blanca.",
     )
     invert = st.checkbox(
         "Invertir (rata clara sobre fondo oscuro)",
@@ -42,6 +102,24 @@ with col2:
     )
     blur_size = st.slider("Radio de blur (px)", 1, 10, TRACKER_DEFAULTS["blur_size"])
 
+if method == "color":
+    st.subheader("Ajuste de color blanco")
+    col3, col4 = st.columns(2)
+    with col3:
+        sat_max = st.slider(
+            "Saturación máxima",
+            min_value=0, max_value=255, value=TRACKER_DEFAULTS["sat_max"],
+            help="Color blanco tiene baja saturación.",
+        )
+        val_min = st.slider(
+            "Brillo mínimo",
+            min_value=0, max_value=255, value=TRACKER_DEFAULTS["val_min"],
+            help="La rata blanca es brillante en el video.",
+        )
+    with col4:
+        hue_min = st.slider("Matiz mínimo", 0, 179, TRACKER_DEFAULTS["hue_min"])
+        hue_max = st.slider("Matiz máximo", 0, 179, TRACKER_DEFAULTS["hue_max"])
+
 tracker_config = {
     "method": method,
     "invert": invert,
@@ -50,6 +128,18 @@ tracker_config = {
     "var_threshold": int(var_threshold),
     "blur_size": int(blur_size),
 }
+
+if method == "color":
+    tracker_config.update({
+        "hue_min": int(hue_min),
+        "hue_max": int(hue_max),
+        "sat_max": int(sat_max),
+        "val_min": int(val_min),
+        "val_max": TRACKER_DEFAULTS["val_max"],
+    })
+
+if len(st.session_state.boundary_points) >= 3:
+    tracker_config["boundary_points"] = st.session_state.boundary_points
 
 st.divider()
 

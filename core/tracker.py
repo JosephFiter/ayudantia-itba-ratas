@@ -8,9 +8,10 @@ from typing import Callable, Optional
 class RatTracker:
     """
     Trackea la posición (x, y) de una rata frame a frame.
-    Soporta dos modos:
+    Soporta tres modos:
       - 'mog2'      : Background Subtraction adaptativo (cámara estática, iluminación variable)
       - 'threshold' : Umbralización de Otsu (fondo completamente estático y uniforme)
+      - 'color'     : Detección por color blanco (rata blanca contrastando con el laberinto)
     """
 
     def __init__(self, config: dict | None = None):
@@ -20,6 +21,16 @@ class RatTracker:
         self.min_area = cfg.get("min_area", 200)
         self.max_area = cfg.get("max_area", 10_000)
         self.blur_k = cfg.get("blur_size", 3) * 2 + 1  # siempre impar
+
+        # Color detection parameters
+        self.hue_min = cfg.get("hue_min", 0)
+        self.hue_max = cfg.get("hue_max", 179)
+        self.sat_max = cfg.get("sat_max", 30)  # Low saturation for white
+        self.val_min = cfg.get("val_min", 200)  # High brightness for white
+        self.val_max = cfg.get("val_max", 255)
+
+        # Boundary/ROI parameters
+        self.boundary_points = cfg.get("boundary_points", [])
 
         self.bg_sub = cv2.createBackgroundSubtractorMOG2(
             history=cfg.get("history", 500),
@@ -40,9 +51,12 @@ class RatTracker:
                          [0, 0, 0, 1]], dtype=float)
         kf.H = np.array([[1, 0, 0, 0],
                          [0, 1, 0, 0]], dtype=float)
-        kf.R = np.eye(2) * 5
-        kf.P = np.eye(4) * 500
-        kf.Q = np.eye(4) * 0.05
+        # More conservative measurement noise (higher = less responsive to measurements)
+        kf.R = np.eye(2) * 15
+        # Higher initial uncertainty
+        kf.P = np.eye(4) * 1000
+        # Lower process noise (higher = more smoothing, less responsive)
+        kf.Q = np.eye(4) * 0.01
         return kf
 
     # ── Utilidades ────────────────────────────────────────────────────
@@ -68,10 +82,47 @@ class RatTracker:
         _, binary = cv2.threshold(blurred, 0, 255, flag | cv2.THRESH_OTSU)
         return self._clean_mask(binary)
 
+    def _mask_color(self, frame: np.ndarray) -> np.ndarray:
+        """Detect white areas in HSV color space for white rat detection."""
+        # Convert to HSV
+        hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+
+        # Create mask for white color (low saturation, high brightness)
+        lower_white = np.array([self.hue_min, 0, self.val_min])
+        upper_white = np.array([self.hue_max, self.sat_max, self.val_max])
+        mask = cv2.inRange(hsv, lower_white, upper_white)
+
+        # Apply blur and morphological operations
+        mask = cv2.GaussianBlur(mask, (self.blur_k, self.blur_k), 0)
+        return self._clean_mask(mask)
+
+    def _build_boundary_mask(self, frame: np.ndarray) -> Optional[np.ndarray]:
+        """Create a mask from boundary points to limit detection area."""
+        if not self.boundary_points or len(self.boundary_points) < 3:
+            return None
+        mask = np.zeros(frame.shape[:2], dtype=np.uint8)
+        pts = np.array(self.boundary_points, dtype=np.int32)
+        cv2.fillPoly(mask, [pts], 255)
+        return mask
+
+    def _apply_boundary(self, mask: np.ndarray, boundary: Optional[np.ndarray]) -> np.ndarray:
+        """Apply boundary mask to limit detection to ROI."""
+        if boundary is None:
+            return mask
+        return cv2.bitwise_and(mask, mask, mask=boundary)
+
     # ── Detección por frame ───────────────────────────────────────────
     def detect(self, frame: np.ndarray) -> tuple[Optional[tuple[float, float]], np.ndarray]:
-        gray = self._to_gray(frame)
-        mask = self._mask_mog2(gray) if self.method == "mog2" else self._mask_threshold(gray)
+        if self.method == "color":
+            mask = self._mask_color(frame)
+        else:
+            gray = self._to_gray(frame)
+            mask = self._mask_mog2(gray) if self.method == "mog2" else self._mask_threshold(gray)
+
+        # Apply boundary mask if available
+        if self.boundary_points:
+            boundary = self._build_boundary_mask(frame)
+            mask = self._apply_boundary(mask, boundary)
 
         contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         valid = [c for c in contours if self.min_area < cv2.contourArea(c) < self.max_area]
