@@ -34,9 +34,6 @@ c3.metric("Vel. máx.", f"{stats['max_speed_cms']:.1f} cm/s")
 c4.metric("Detección", f"{stats['detection_pct']:.1f} %")
 c5.metric("Duración", f"{stats['duration_s']:.1f} s")
 
-if len(usv_df):
-    st.metric("Eventos USV detectados", len(usv_df))
-
 st.divider()
 
 # ── Filtro temporal ───────────────────────────────────────────────────────────
@@ -52,7 +49,7 @@ st.caption(f"Frames en rango: **{len(df_filtered):,}** de {len(df):,}")
 st.divider()
 
 # ── Visualizaciones ───────────────────────────────────────────────────────────
-tab1, tab2, tab3 = st.tabs(["🔥 Heatmap", "🗺️ Trayectoria", "📈 Timeline"])
+tab1, tab2, tab3 = st.tabs(["Heatmap", "Trayectoria", "Timeline velocidad"])
 
 with tab1:
     st.markdown("### Heatmap de ocupación")
@@ -68,8 +65,8 @@ with tab2:
     st.pyplot(fig_traj, use_container_width=True)
 
 with tab3:
-    st.markdown("### Velocidad + USV sincronizados")
-    fig_tl = build_timeline(df_filtered, usv_df, audio_offset=offset)
+    st.markdown("### Velocidad a lo largo del tiempo")
+    fig_tl = build_timeline(df_filtered, audio_offset=offset)
     st.plotly_chart(fig_tl, use_container_width=True)
 
 st.divider()
@@ -121,21 +118,6 @@ with col_a:
         file_name=f"{stem}_tracking.csv",
         mime="text/csv",
     )
-
-with col_b:
-    if len(usv_df):
-        st.markdown("**CSV — Eventos USV sincronizados**")
-        usv_synced = usv_df.copy()
-        usv_synced["time_start"] += offset
-        usv_synced["time_end"] += offset
-        csv_usv = io.StringIO()
-        usv_synced.to_csv(csv_usv, index=False)
-        st.download_button(
-            "Descargar CSV USV",
-            data=csv_usv.getvalue().encode(),
-            file_name=f"{stem}_usv_synced.csv",
-            mime="text/csv",
-        )
 
 with col_c:
     st.markdown("**Video anotado (mp4)**")

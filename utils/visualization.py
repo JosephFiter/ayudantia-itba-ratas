@@ -70,18 +70,25 @@ def build_trajectory(
 
 def build_timeline(
     tracking_df: pd.DataFrame,
-    usv_df: pd.DataFrame,
+    usv_df: pd.DataFrame | None = None,
     audio_offset: float = 0.0,
 ) -> go.Figure:
-    fig = make_subplots(
-        rows=2, cols=1,
-        shared_xaxes=True,
-        row_heights=[0.65, 0.35],
-        vertical_spacing=0.06,
-        subplot_titles=("Velocidad instantánea (cm/s)", "Vocalizaciones ultrasónicas (USV)"),
-    )
+    if usv_df is None:
+        usv_df = pd.DataFrame()
 
-    # Fila 1 — velocidad
+    has_usv = len(usv_df) > 0
+
+    if has_usv:
+        fig = make_subplots(
+            rows=2, cols=1,
+            shared_xaxes=True,
+            row_heights=[0.65, 0.35],
+            vertical_spacing=0.06,
+            subplot_titles=("Velocidad instantánea (cm/s)", "Vocalizaciones ultrasónicas (USV)"),
+        )
+    else:
+        fig = make_subplots(rows=1, cols=1)
+
     df = tracking_df.dropna(subset=["speed_smooth"])
     fig.add_trace(
         go.Scatter(
@@ -93,7 +100,6 @@ def build_timeline(
         row=1, col=1,
     )
 
-    # Puntos donde no hubo detección
     no_det = tracking_df[~tracking_df["detected"]]
     if len(no_det):
         fig.add_trace(
@@ -107,8 +113,7 @@ def build_timeline(
             row=1, col=1,
         )
 
-    # Fila 2 — eventos USV como barras verticales
-    if len(usv_df):
+    if has_usv:
         usv = usv_df.copy()
         usv["time_start"] += audio_offset
         usv["time_end"] += audio_offset
@@ -120,7 +125,6 @@ def build_timeline(
                 layer="below", line_width=0,
                 row=2, col=1,
             )
-        # Línea fantasma para leyenda
         fig.add_trace(
             go.Scatter(
                 x=[None], y=[None], mode="lines",
@@ -128,7 +132,6 @@ def build_timeline(
             ),
             row=2, col=1,
         )
-        # Puntos de frecuencia pico
         fig.add_trace(
             go.Scatter(
                 x=(usv["time_start"] + usv["time_end"]) / 2,
@@ -139,12 +142,12 @@ def build_timeline(
             ),
             row=2, col=1,
         )
+        fig.update_yaxes(title_text="kHz", row=2, col=1)
 
     fig.update_yaxes(title_text="cm/s", row=1, col=1)
-    fig.update_yaxes(title_text="kHz", row=2, col=1)
-    fig.update_xaxes(title_text="Tiempo (s)", row=2, col=1)
+    fig.update_xaxes(title_text="Tiempo (s)", row=1 if not has_usv else 2, col=1)
     fig.update_layout(
-        height=520,
+        height=400 if not has_usv else 520,
         plot_bgcolor="#0e1117",
         paper_bgcolor="#0e1117",
         font_color="white",

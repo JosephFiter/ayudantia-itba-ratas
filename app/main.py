@@ -22,11 +22,10 @@ st.markdown("""
 
 | Paso | Página | Descripción |
 |------|--------|-------------|
-| 1 | **Upload** | Cargar video y archivo de audio |
+| 1 | **Upload** | Cargar video |
 | 2 | **Calibración** | Definir la relación píxel/cm |
 | 3 | **Tracking** | Ejecutar el algoritmo de seguimiento |
-| 4 | **Sincronización** | Ajustar el offset temporal audio-video |
-| 5 | **Análisis** | Heatmap, velocidad, exportar resultados |
+| 4 | **Análisis** | Heatmap, velocidad, exportar resultados |
 
 Usá el menú de la izquierda para navegar entre pasos.
 """)
