@@ -6,18 +6,26 @@ UPLOADS_DIR = DATA_DIR / "uploads"
 CACHE_DIR = DATA_DIR / "cache"
 RESULTS_DIR = DATA_DIR / "results"
 
-for _d in (UPLOADS_DIR, CACHE_DIR, RESULTS_DIR):
+YOLO_DIR = DATA_DIR / "yolo"
+
+for _d in (UPLOADS_DIR, CACHE_DIR, RESULTS_DIR, YOLO_DIR):
     _d.mkdir(parents=True, exist_ok=True)
 
 TRACKER_DEFAULTS = {
     "method": "mog2",        # "mog2" | "threshold" | "color"
-    "invert": False,          # True si la rata es clara sobre fondo oscuro
+    "invert": False,
     "min_area": 200,
     "max_area": 10_000,
     "blur_size": 3,
     "history": 500,
     "var_threshold": 40,
-    # Color detection parameters for white rat
+    # Filtrado de forma (evita trackear la cola)
+    "min_circularity": 0.35,  # 0 = sin filtro, 1 = solo círculos perfectos
+    # Filtro de salto (evita teleportaciones)
+    "max_jump_px": 120,        # px máx desde la predicción de Kalman
+    # Congelamiento de MOG2 cuando la rata está quieta
+    "still_speed_px": 4.0,    # px/frame — por debajo de esto se frena el aprendizaje
+    # Color detection (rata blanca)
     "hue_min": 0,
     "hue_max": 179,
     "sat_max": 30,

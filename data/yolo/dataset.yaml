@@ -1,0 +1,6 @@
+names:
+- rata
+nc: 1
+path: C:\Users\lucas\Desktop\ayudantia-itba-ratas\data\yolo\dataset
+train: images
+val: images

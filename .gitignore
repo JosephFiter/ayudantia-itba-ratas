@@ -29,10 +29,16 @@ dist/
 *.suo
 *.user
 
-# Datos del proyecto (uploads, caché, resultados)
+# Datos del proyecto (uploads, caché, resultados, YOLO)
 data/uploads/
 data/cache/
 data/results/
+data/yolo/dataset/
+data/yolo/rat_detector/
+*.pt
+*.jpg
+*.jpeg
+*.png
 
 # Videos y audios sueltos en cualquier parte
 *.mp4

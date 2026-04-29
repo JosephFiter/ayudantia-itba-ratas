@@ -8,7 +8,7 @@ import numpy as np
 import pandas as pd
 from PIL import Image, ImageDraw
 from streamlit_image_coordinates import streamlit_image_coordinates
-from config import APP_TITLE, CACHE_DIR, TRACKER_DEFAULTS
+from config import APP_TITLE, CACHE_DIR, YOLO_DIR, TRACKER_DEFAULTS
 from core.tracker import RatTracker
 from core.metrics import compute_metrics, summary_stats
 
@@ -84,8 +84,8 @@ col1, col2 = st.columns(2)
 with col1:
     method = st.selectbox(
         "Método de detección",
-        ["mog2", "threshold", "color"],
-        help="mog2: Background Subtraction adaptativo. threshold: Umbralización de Otsu. color: Detección de rata blanca.",
+        ["mog2", "threshold", "color", "yolo"],
+        help="mog2: Background Subtraction adaptativo. threshold: Umbralización de Otsu. color: Detección de rata blanca. yolo: Modelo IA entrenado (recomendado para visión nocturna).",
     )
     invert = st.checkbox(
         "Invertir (rata clara sobre fondo oscuro)",
@@ -101,6 +101,33 @@ with col2:
         help="Valores bajos = más sensible al movimiento, más falsos positivos.",
     )
     blur_size = st.slider("Radio de blur (px)", 1, 10, TRACKER_DEFAULTS["blur_size"])
+
+st.markdown("**Filtros de calidad de detección**")
+col3, col4, col5 = st.columns(3)
+with col3:
+    min_circularity = st.slider(
+        "Circularidad mínima",
+        min_value=0.0, max_value=0.8,
+        value=float(TRACKER_DEFAULTS["min_circularity"]),
+        step=0.05,
+        help="Filtra la cola (elongada). 0 = sin filtro. Subí si trackea la cola, bajá si pierde el cuerpo.",
+    )
+with col4:
+    max_jump_px = st.slider(
+        "Salto máximo (px)",
+        min_value=20, max_value=400,
+        value=int(TRACKER_DEFAULTS["max_jump_px"]),
+        step=10,
+        help="Distancia máxima desde la última posición. Evita teleportaciones a detecciones falsas.",
+    )
+with col5:
+    still_speed_px = st.slider(
+        "Umbral de quietud (px/frame)",
+        min_value=1.0, max_value=20.0,
+        value=float(TRACKER_DEFAULTS["still_speed_px"]),
+        step=0.5,
+        help="Por debajo de esta velocidad se frena el aprendizaje del fondo en MOG2. Evita que la rata 'desaparezca' cuando está quieta.",
+    )
 
 if method == "color":
     st.subheader("Ajuste de color blanco")
@@ -127,6 +154,9 @@ tracker_config = {
     "max_area": int(max_area),
     "var_threshold": int(var_threshold),
     "blur_size": int(blur_size),
+    "min_circularity": float(min_circularity),
+    "max_jump_px": int(max_jump_px),
+    "still_speed_px": float(still_speed_px),
 }
 
 if method == "color":
@@ -140,6 +170,69 @@ if method == "color":
 
 if len(st.session_state.boundary_points) >= 3:
     tracker_config["boundary_points"] = st.session_state.boundary_points
+
+st.divider()
+
+# ── Entrenar modelo IA (YOLOv8) ───────────────────────────────────────────────
+st.subheader("Modelo IA (YOLOv8)")
+
+YOLO_MODEL_PATH = YOLO_DIR / "rat_detector" / "weights" / "best.pt"
+
+if YOLO_MODEL_PATH.exists():
+    st.success(f"Modelo entrenado disponible: `{YOLO_MODEL_PATH.name}`")
+    if st.button("Reentrenar modelo", help="Volvé a entrenar si cambiaron los videos o los parámetros."):
+        st.session_state["run_training"] = True
+else:
+    st.info("No hay modelo IA entrenado todavía. Entrenalo una vez y después usá el método **yolo** en el tracking.")
+    if st.button("Entrenar modelo IA", type="primary"):
+        st.session_state["run_training"] = True
+
+if st.session_state.get("run_training"):
+    st.session_state["run_training"] = False
+    from core.trainer import extract_and_label, train_rat_detector
+
+    col_train1, col_train2 = st.columns(2)
+    with col_train1:
+        n_frames = st.number_input("Frames a etiquetar", min_value=50, max_value=1000, value=300, step=50)
+    with col_train2:
+        epochs = st.number_input("Épocas de entrenamiento", min_value=10, max_value=200, value=50, step=10)
+
+    prog = st.progress(0.0, text="Iniciando…")
+    log  = st.empty()
+
+    def cb(pct, msg):
+        prog.progress(float(pct), text=msg)
+        log.caption(msg)
+
+    try:
+        dataset_dir = YOLO_DIR / "dataset"
+        cb(0.0, "Extrayendo y etiquetando frames con tracker CV…")
+        labeled = extract_and_label(
+            st.session_state.video_path,
+            dataset_dir,
+            tracker_config,
+            n_frames=int(n_frames),
+            progress_cb=cb,
+        )
+        if labeled < 10:
+            st.error(f"Solo se encontraron {labeled} detecciones. Ajustá los parámetros del tracker CV primero y volvé a intentar.")
+        else:
+            cb(0.6, f"{labeled} frames etiquetados. Entrenando YOLOv8 nano… (puede tardar varios minutos)")
+            trained_path = train_rat_detector(
+                dataset_dir,
+                YOLO_DIR,
+                epochs=int(epochs),
+                progress_cb=cb,
+            )
+            prog.progress(1.0, text="Entrenamiento completado.")
+            st.success(f"Modelo guardado en `{trained_path}`. Ahora seleccioná el método **yolo** y ejecutá el tracking.")
+    except Exception as e:
+        st.error(f"Error durante el entrenamiento: {e}")
+
+if YOLO_MODEL_PATH.exists() and method == "yolo":
+    tracker_config["yolo_model_path"] = str(YOLO_MODEL_PATH)
+elif method == "yolo" and not YOLO_MODEL_PATH.exists():
+    st.warning("Método **yolo** seleccionado pero no hay modelo entrenado. Entrenalo primero.")
 
 st.divider()
 
@@ -256,4 +349,4 @@ if st.session_state.tracking_df is not None:
     with st.expander("Ver primeras filas del DataFrame"):
         st.dataframe(df.head(50), use_container_width=True)
 
-    st.markdown("➡️ Continuá en **4 Sincronización**")
+    st.markdown("➡️ Continuá en **5 Análisis**")
